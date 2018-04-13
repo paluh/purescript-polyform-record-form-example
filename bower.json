@@ -1,0 +1,20 @@
+{
+  "name": "purescript-polyform-record-form-example",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "output"
+  ],
+  "dependencies": {
+    "purescript-prelude": "^3.3.0",
+    "purescript-console": "^3.0.0",
+    "purescript-polyform": "^0.6.2",
+    "purescript-profunctor": "^3.2.0",
+    "purescript-foreign": "^4.0.1",
+    "purescript-debug": "^3.0.0"
+  },
+  "devDependencies": {
+    "purescript-psci-support": "^3.0.0"
+  }
+}
