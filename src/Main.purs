@@ -75,12 +75,6 @@ form2 = form1 >>> hoistFnV \{ p1, p2} →
     then
       let
         err = inj (SProxy ∷ SProxy "mismatch") (Tuple p1 p2)
-        x = do
-          traceAnyA p1
-          traceAnyA p2
-          traceAnyA (p2 /= p1)
-          traceAnyA "in error"
-          Just 8
       in
         Invalid $ FunA (\r → r { password2 = case r.password2 of
           Nothing → Just (Left [err])
