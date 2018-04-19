@@ -17,22 +17,19 @@ import Debug.Trace (traceAnyA)
 import Polyform.Validation (V(..), Validation(..), hoistFn, hoistFnMV, hoistFnV, runValidation)
 import Type.Prelude (class IsSymbol, SProxy(..))
 
-
--- | This is mess - we want to use Join here
--- | but validation combines subforms in order
--- | but Join defines (<>) as (<<<)
+-- | `Join a` defines (<>) as (<<<)
 -- | so later validation result
--- | overrides earlier...
--- | So we need this hack
-newtype FunA a = FunA (a → a)
+-- | overrides earlier in our case...
+-- | We need this custom Endo
+-- | to reverse the order.
+newtype Endo a = Endo (a → a)
 
-instance semigroupFunA :: Semigroup (FunA a) where
-  append (FunA a) (FunA b) = FunA (a >>> b)
+instance semigroupEndo :: Semigroup (Endo a) where
+  append (Endo a) (Endo b) = Endo (a >>> b)
 
-instance monoidFunA ∷ Monoid (FunA a) where
-  mempty = FunA id
+instance monoidEndo ∷ Monoid (Endo a) where
+  mempty = Endo id
 
-type FormTransform = FunA
 
 -- `Nothing` when not validated - I'm not sure if this is acceptable
 type Field e a = Maybe (Either e a)
@@ -48,45 +45,20 @@ inputForm
   ⇒ RowCons n (Field e a) trash2 form
   ⇒ SProxy n
   → Validation m e String a
-  → Validation m (FormTransform (Record form)) (Record input) a
+  → Validation m (Endo (Record form)) (Record input) a
 inputForm name validation = hoistFnMV \input → do
   result ← runValidation validation (get name input)
   -- | For field validation we can use something
   -- | based on purescirpt-validation `V`
   pure $ case result of
-    Valid _ r → Valid (FunA $ set name (Just $ Right r)) r
-    Invalid e → Invalid (FunA $ set name (Just $ Left e))
-
-password1 = inputForm (SProxy ∷ SProxy "password1") (tooLong 20 *> tooShort 4 *> missingDigit)
-password2 = inputForm (SProxy ∷ SProxy "password2") (tooLong 20 *> tooShort 4 *> missingDigit)
-
--- | Simple form which validates record
-form1 = {p1: _, p2: _} <$> password1 <*> password2
+    Valid _ r → Valid (Endo $ set name (Just $ Right r)) r
+    Invalid e → Invalid (Endo $ set name (Just $ Left e))
 
 runValidation' form initial input = do
   result ← runValidation form input
   pure $ case result of
-    Valid (FunA transform) a → transform initial
-    Invalid (FunA transform) → transform initial
-
-
-form2 = form1 >>> hoistFnV \{ p1, p2} →
-  if p1 /= p2
-    then
-      let
-        err = inj (SProxy ∷ SProxy "mismatch") (Tuple p1 p2)
-      in
-        Invalid $ FunA (\r → r { password2 = case r.password2 of
-          Nothing → Just (Left [err])
-          Just (Right _) → Just (Left [err])
-          Just (Left errs) → Just (Left (err : errs)) })
-    else
-      Valid (FunA id) p1
-
-
--- | For fields we probably don't want
--- | this Validation but something based
--- | on purescript-validation V
+    Valid (Endo transform) a → Valid (transform initial) a
+    Invalid (Endo transform) → Invalid $ transform initial
 
 tooShort :: ∀ m err
   . Monad m
@@ -118,12 +90,31 @@ missingDigit = hoistFnV \str →
       then pure str
       else Invalid [ inj (SProxy :: SProxy "missingDigit") str ]
 
+password s = inputForm s (tooLong 20 *> tooShort 4 *> missingDigit)
+password1 = password (SProxy ∷ SProxy "password1")
+password2 = password (SProxy ∷ SProxy "password2")
+
+-- | Simple form which validates only fields
+form = ({p1: _, p2: _} <$> password1 <*> password2) >>> hoistFnV \{ p1, p2} →
+  if p1 /= p2
+    then
+      let
+        err = inj (SProxy ∷ SProxy "mismatch") (Tuple p1 p2)
+      in
+        Invalid $ Endo (\r → r { password2 = case r.password2 of
+          Nothing → Just (Left [err])
+          Just (Right _) → Just (Left [err])
+          Just (Left errs) → Just (Left (err : errs)) })
+    else
+      Valid (Endo id) p1
 
 main :: forall e. Eff (console :: CONSOLE | e) Unit
 main = do
   log "Hello sailor!"
-  r ← runValidation' form1 { password1: Nothing, password2: Nothing } { password1: "est", password2: "lkasdlkfalsdj" }
-  traceAnyA $ r
+  r ← runValidation' form { password1: Nothing, password2: Nothing } { password1: "est", password2: "lkasdlkfalsdj" }
 
-  r' ← runValidation' form2 { password1: Nothing, password2: Nothing } { password1: "longenough89", password2: "longenough8" }
+  r' ← runValidation' form { password1: Nothing, password2: Nothing } { password1: "longenough89", password2: "longenough8" }
+  traceAnyA $ r'
+
+  r' ← runValidation' form { password1: Nothing, password2: Nothing } { password1: "longenough8", password2: "longenough8" }
   traceAnyA $ r'
